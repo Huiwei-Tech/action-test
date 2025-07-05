@@ -1,0 +1,126 @@
+name: Deploy Multi Talent System
+
+on:
+  workflow_dispatch:
+    inputs:
+      userid:
+        description: "Multi Talent User ID"
+        required: true
+        type: string
+      domain_prefix:
+        description: "Multi Talent Domain prefix"
+        required: true
+        type: string
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        default: "deploy"
+        options:
+          - "deploy"
+          - "remove"
+
+concurrency:
+  group: ${{ github.workflow }}-multitalent-${{ inputs.userid }}-${{ inputs.domain_prefix }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  deployments: write
+  id-token: write
+  pull-requests: write
+
+jobs:
+  deploy-multitalent:
+    runs-on: namespace-profile-2404-4x8
+
+    environment: ${{ github.event.inputs.action == 'deploy' && 'multitalent' || 'dev' }}
+    env:
+      SST_ACTION: ${{ github.event.inputs.action }}
+      SST_STAGE: multitalent-${{ inputs.userid }}-${{ inputs.domain_prefix }}
+      USER_ID: ${{ inputs.userid }}
+      DOMAIN_PREFIX: ${{ inputs.domain_prefix }}
+      DEPLOYMENT_TYPE: "multitalent"
+      SKIP_PORTAL: "true"
+      SKIP_STOREFRONT: "true"
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # ratchet:actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # ratchet:oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.4
+
+      - name: Multi Talent deployment summary
+        if: ${{ env.SST_ACTION == 'deploy' }}
+        run: |
+          echo "🚀 Multi Talent Deployment completed!"
+          echo "Multi Talent User ID: ${{ env.USER_ID }}"
+          echo "Domain prefix: ${{ env.DOMAIN_PREFIX }}"
+          echo "Stage: ${{ env.SST_STAGE }}"
+          echo "Database branch: ${{ env.SST_STAGE }}"
+          echo "Multi Talent Components: Medusa backend + Admin panel"
+          echo "Excluded: Portal + Storefront"
+          echo "Access URLs:"
+          echo "  - API: https://aop-${{ env.SST_STAGE }}.medusa.orderpilot.nl"
+          echo "  - Admin: https://aop-admin-${{ env.SST_STAGE }}.orderpilot.nl"
+
+      - name: Generate timestamp
+        id: get-timestamp
+        if: ${{ env.SST_ACTION == 'deploy' && (success() || failure()) }}
+        run: |
+          # Generate ISO-8601 timestamp
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+
+      - name: Notify deployment status - success
+        if: ${{ env.SST_ACTION == 'deploy' && success() }}
+        uses: distributhor/workflow-webhook@v3
+        with:
+          webhook_url: 'https://aop-portal-dev.orderpilot.nl/deployment'
+          webhook_type: 'json'
+          timeout: 30
+          max_time: 30
+          verify_ssl: true
+          data: |
+            {
+              "event": "deployment_status",
+              "status": "success",
+              "client_payload": {
+                "userid": "${{ env.USER_ID }}",
+                "domain_prefix": "${{ env.DOMAIN_PREFIX }}"
+              },
+              "resources": {
+                "domain": "${{ env.DOMAIN_PREFIX }}.orderpilot.nl",
+                "order_email": "orders@${{ env.DOMAIN_PREFIX }}.orderpilot.nl",
+                "API": "https://aop-${{ env.SST_STAGE }}.medusa.orderpilot.nl"
+              },
+              "timestamp": "${{ steps.get-timestamp.outputs.timestamp }}"
+            }
+
+      - name: Notify deployment status - failure
+        if: ${{ env.SST_ACTION == 'deploy' && failure() }}
+        uses: distributhor/workflow-webhook@v3
+        with:
+          webhook_url: 'https://aop-portal-dev.orderpilot.nl/deployment'
+          webhook_type: 'json'
+          timeout: 30
+          max_time: 30
+          verify_ssl: true
+          data: |
+            {
+              "event": "deployment_status",
+              "status": "failed",
+              "client_payload": {
+                "userid": "${{ env.USER_ID }}",
+                "domain_prefix": "${{ env.DOMAIN_PREFIX }}"
+              },
+              "resources": {
+                "domain": "${{ env.DOMAIN_PREFIX }}.orderpilot.nl",
+                "order_email": "orders@${{ env.DOMAIN_PREFIX }}.orderpilot.nl",
+                "API": "https://aop-${{ env.SST_STAGE }}.medusa.orderpilot.nl"
+              },
+              "timestamp": "${{ steps.get-timestamp.outputs.timestamp }}"
+            }
