@@ -34,7 +34,7 @@ permissions:
 
 jobs:
   deploy-multitalent:
-    runs-on: namespace-profile-2404-4x8
+    runs-on: ubuntu-latest
 
     environment: ${{ github.event.inputs.action == 'deploy' && 'multitalent' || 'dev' }}
     env:
